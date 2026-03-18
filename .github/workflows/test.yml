@@ -7,16 +7,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-      #  with:
-      #    repository: ${{ vars.REPOSITORY }}
-      #    ref: ${{ vars.REF }}
+        uses: actions/checkout@v4
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v7.1.4
-
+        uses: astral-sh/setup-uv@v5
 
       - name: Run script
+        id: run_script
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
           ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
@@ -29,6 +26,31 @@ jobs:
         run: |
           export DEBUG=true
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-          echo "Use custom config: "
-          cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py
+          uv run src/zotero_arxiv_daily/main.py 2>&1 | tee /tmp/arxiv_run.log
+
+      - name: Send Telegram notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCRIPT_RESULT: ${{ steps.run_script.outcome }}
+        run: |
+          TODAY=$(date -u +"%Y-%m-%d")
+          LOG="/tmp/arxiv_run.log"
+
+          if [ "$SCRIPT_RESULT" = "success" ]; then
+            PAPER_COUNT=$(grep -oP 'Total \K[0-9]+(?= papers retrieved)' "$LOG" 2>/dev/null | tail -1)
+            if [ -n "$PAPER_COUNT" ] && [ "$PAPER_COUNT" -gt 0 ]; then
+              STATUS="✅ 测试成功，共检索到 *${PAPER_COUNT}* 篇论文，邮件已发送"
+            else
+              STATUS="✅ 测试脚本执行成功"
+            fi
+          else
+            STATUS="❌ 测试失败，请查看 [Actions 日志](https://github.com/Yongwei-Zhang/zotero-arxiv-daily/actions)"
+          fi
+
+          MSG="🧪 *ArXiv Test 运行（${TODAY}）*%0A%0A${STATUS}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d text="${MSG}"
