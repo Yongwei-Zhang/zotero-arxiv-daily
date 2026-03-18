@@ -30,8 +30,7 @@ jobs:
           CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
         run: |
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py 2>&1 | tee /tmp/arxiv_run.log
-          echo "script_exit=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          uv run src/zotero_arxiv_daily/main.py
 
       - name: Send Telegram notification
         if: always()
@@ -40,28 +39,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SCRIPT_RESULT: ${{ steps.run_script.outcome }}
         run: |
-          TODAY=$(date -u +"%Y-%m-%d")
-          LOG="/tmp/arxiv_run.log"
-
           if [ "$SCRIPT_RESULT" = "success" ]; then
-            if grep -q "No new papers found" "$LOG" 2>/dev/null; then
-              STATUS="📭 今日没有找到新论文（可能是节假日或 arXiv 未更新）"
-            elif grep -q "No zotero papers found" "$LOG" 2>/dev/null; then
-              STATUS="⚠️ 无法获取 Zotero 文库，请检查配置"
-            else
-              PAPER_COUNT=$(grep -oP 'Total \K[0-9]+(?= papers retrieved)' "$LOG" 2>/dev/null | tail -1)
-              if [ -n "$PAPER_COUNT" ] && [ "$PAPER_COUNT" -gt 0 ]; then
-                STATUS="✅ 邮件已发送，共推荐 *${PAPER_COUNT}* 篇论文"
-              else
-                STATUS="✅ 脚本执行成功，邮件已发送至 zhangyongwei@buaa.edu.cn"
-              fi
-            fi
+            uv run python src/zotero_arxiv_daily/telegram_sender.py
           else
-            STATUS="❌ 脚本执行失败，请查看 [Actions 日志](https://github.com/Yongwei-Zhang/zotero-arxiv-daily/actions)"
+            TODAY=$(date -u +"%Y-%m-%d")
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d parse_mode="HTML" \
+              --data-urlencode "text=❌ <b>ArXiv 日报 ${TODAY}</b> 脚本执行失败，请查看 Actions 日志。"
           fi
-
-          MSG="📚 *ArXiv 日报 ${TODAY}*%0A%0A${STATUS}"
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d parse_mode="Markdown" \
-            -d text="${MSG}"
