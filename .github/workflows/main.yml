@@ -30,56 +30,37 @@ jobs:
           CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
         run: |
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-          echo "Use custom config: "
-          cat config/custom.yaml
           uv run src/zotero_arxiv_daily/main.py 2>&1 | tee /tmp/arxiv_run.log
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          echo "script_exit=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
 
       - name: Send Telegram notification
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SCRIPT_RESULT: ${{ steps.run_script.outcome }}
         run: |
-          LOG_FILE="/tmp/arxiv_run.log"
           TODAY=$(date -u +"%Y-%m-%d")
-          WEEKDAY=$(date -u +"%u")  # 1=Mon ... 7=Sun
+          LOG="/tmp/arxiv_run.log"
 
-          # 判断是否是周末（周六=6，周日=7）
-          if [ "$WEEKDAY" -eq 6 ] || [ "$WEEKDAY" -eq 7 ]; then
-            MSG="📅 *今日 ArXiv 日报（${TODAY}）*%0A%0A今天是周末，arXiv 不更新论文，休息一天～"
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              -d parse_mode="Markdown" \
-              -d text="${MSG}"
-            exit 0
-          fi
-
-          # 提取论文数量（从日志中查找关键信息）
-          PAPER_COUNT=$(grep -oP 'Total \K[0-9]+(?= papers retrieved)' "$LOG_FILE" | tail -1 || echo "0")
-          SENT_COUNT=$(grep -oP 'reranked_papers\[\:\K[0-9]+|up to \K[0-9]+(?= papers)' "$LOG_FILE" | tail -1 || echo "")
-
-          # 检查是否发送成功
-          if grep -q "Email sent successfully" "$LOG_FILE"; then
-            STATUS="✅ 邮件已发送至 zhangyongwei@buaa.edu.cn"
-          elif grep -q "No new papers found" "$LOG_FILE"; then
-            STATUS="📭 今日没有找到新论文（可能是节假日或 arXiv 未更新）"
-          elif grep -q "No zotero papers found" "$LOG_FILE"; then
-            STATUS="⚠️ 未能获取 Zotero 文库，请检查 ZOTERO_ID/ZOTERO_KEY 配置"
+          if [ "$SCRIPT_RESULT" = "success" ]; then
+            if grep -q "No new papers found" "$LOG" 2>/dev/null; then
+              STATUS="📭 今日没有找到新论文（可能是节假日或 arXiv 未更新）"
+            elif grep -q "No zotero papers found" "$LOG" 2>/dev/null; then
+              STATUS="⚠️ 无法获取 Zotero 文库，请检查配置"
+            else
+              PAPER_COUNT=$(grep -oP 'Total \K[0-9]+(?= papers retrieved)' "$LOG" 2>/dev/null | tail -1)
+              if [ -n "$PAPER_COUNT" ] && [ "$PAPER_COUNT" -gt 0 ]; then
+                STATUS="✅ 邮件已发送，共推荐 *${PAPER_COUNT}* 篇论文"
+              else
+                STATUS="✅ 脚本执行成功，邮件已发送至 zhangyongwei@buaa.edu.cn"
+              fi
+            fi
           else
-            STATUS="❌ 脚本运行异常，请查看 GitHub Actions 日志"
+            STATUS="❌ 脚本执行失败，请查看 [Actions 日志](https://github.com/Yongwei-Zhang/zotero-arxiv-daily/actions)"
           fi
 
-          # 提取前几篇论文标题（从日志中解析）
-          TOP_PAPERS=$(grep -oP 'Title:\s*\K.+' "$LOG_FILE" | head -5 | awk '{print NR". "$0}' | tr '\n' '\n' || echo "")
-
-          # 构建消息
-          if [ -n "$PAPER_COUNT" ] && [ "$PAPER_COUNT" -gt "0" ]; then
-            MSG="📚 *ArXiv 日报 ${TODAY}*%0A%0A${STATUS}%0A%0A共检索到 *${PAPER_COUNT}* 篇相关论文"
-          else
-            MSG="📚 *ArXiv 日报 ${TODAY}*%0A%0A${STATUS}"
-          fi
-
+          MSG="📚 *ArXiv 日报 ${TODAY}*%0A%0A${STATUS}"
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d parse_mode="Markdown" \
