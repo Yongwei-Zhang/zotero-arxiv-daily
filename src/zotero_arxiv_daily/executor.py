@@ -82,6 +82,21 @@ class Executor:
             for p in tqdm(reranked_papers):
                 p.generate_tldr(self.openai_client, self.config.llm)
                 p.generate_affiliations(self.openai_client, self.config.llm)
+            
+            # New Add: Save papers for Telegram notification
+            import json as _json
+            _papers_data = [{
+                'title': p.title,
+                'authors': p.authors,
+                'url': p.url,
+                'pdf_url': p.pdf_url,
+                'tldr': p.tldr,
+                'affiliations': p.affiliations,
+                'score': float(p.score) if p.score is not None else None,
+            } for p in reranked_papers]
+            with open('/tmp/papers.json', 'w', encoding='utf-8') as _f:
+                _json.dump(_papers_data, _f, ensure_ascii=False)
+        
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return
