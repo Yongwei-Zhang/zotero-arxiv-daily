@@ -64,3 +64,4 @@ jobs:
               -H "Authorization: Bearer ${TOKEN}" \
               -H "Content-Type: application/json" \
               -d "{\"receive_id\":\"${FEISHU_OPEN_ID}\",\"msg_type\":\"text\",\"content\":\"{\\\"text\\\":\\\"❌ ArXiv 日报 ${TODAY} 脚本执行失败，请查看 Actions 日志。\\\"}\"}"
+          fi
