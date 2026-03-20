@@ -48,3 +48,24 @@ jobs:
               -d parse_mode="HTML" \
               --data-urlencode "text=❌ <b>ArXiv 日报 ${TODAY}</b> 脚本执行失败，请查看 Actions 日志。"
           fi
+
+      - name: Send Feishu notification
+        if: always()
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_OPEN_ID: ${{ secrets.FEISHU_OPEN_ID }}
+          SCRIPT_RESULT: ${{ steps.run_script.outcome }}
+        run: |
+          if [ "$SCRIPT_RESULT" = "success" ]; then
+            uv run python src/zotero_arxiv_daily/feishu_sender.py
+          else
+            TODAY=$(date -u +"%Y-%m-%d")
+            TOKEN=$(curl -s -X POST https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal \
+              -H "Content-Type: application/json" \
+              -d "{\"app_id\":\"${FEISHU_APP_ID}\",\"app_secret\":\"${FEISHU_APP_SECRET}\"}" | python3 -c "import sys,json;print(json.load(sys.stdin)['tenant_access_token'])")
+            curl -s -X POST "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"receive_id\":\"${FEISHU_OPEN_ID}\",\"msg_type\":\"text\",\"content\":\"{\\\"text\\\":\\\"❌ ArXiv 日报 ${TODAY} 脚本执行失败，请查看 Actions 日志。\\\"}\"}"
+          fi
