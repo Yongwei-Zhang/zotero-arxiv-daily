@@ -20,6 +20,8 @@ class LocalReranker(BaseReranker):
             warnings.filterwarnings("ignore", category=FutureWarning)
 
         encoder = SentenceTransformer(self.config.reranker.local.model, trust_remote_code=True)
+        # 尝试删除 trust_remote_code=True 参数，但仍然报错，在 CUSTOM_CONFIG 中指明 reranker 成功
+        # encoder = SentenceTransformer(self.config.reranker.local.model)
         if self.config.reranker.local.encode_kwargs:
             encode_kwargs = self.config.reranker.local.encode_kwargs
         else:
