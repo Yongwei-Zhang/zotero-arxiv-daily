@@ -32,22 +32,22 @@ jobs:
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
           uv run src/zotero_arxiv_daily/main.py
 
-      - name: Send Telegram notification
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SCRIPT_RESULT: ${{ steps.run_script.outcome }}
-        run: |
-          if [ "$SCRIPT_RESULT" = "success" ]; then
-            uv run python src/zotero_arxiv_daily/telegram_sender.py
-          else
-            TODAY=$(date -u +"%Y-%m-%d")
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              -d parse_mode="HTML" \
-              --data-urlencode "text=❌ <b>ArXiv 日报 ${TODAY}</b> 脚本执行失败，请查看 Actions 日志。"
-          fi
+      # - name: Send Telegram notification
+      #   if: always()
+      #   env:
+      #     TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      #     TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      #     SCRIPT_RESULT: ${{ steps.run_script.outcome }}
+      #   run: |
+      #     if [ "$SCRIPT_RESULT" = "success" ]; then
+      #       uv run python src/zotero_arxiv_daily/telegram_sender.py
+      #     else
+      #       TODAY=$(date -u +"%Y-%m-%d")
+      #       curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      #         -d chat_id="${TELEGRAM_CHAT_ID}" \
+      #         -d parse_mode="HTML" \
+      #         --data-urlencode "text=❌ <b>ArXiv 日报 ${TODAY}</b> 脚本执行失败，请查看 Actions 日志。"
+      #     fi
 
       - name: Send Feishu notification
         if: always()
