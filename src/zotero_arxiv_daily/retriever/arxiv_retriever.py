@@ -12,6 +12,7 @@ from queue import Empty
 from typing import Any, Callable, TypeVar
 from loguru import logger
 import requests
+import time
 
 T = TypeVar("T")
 
@@ -137,6 +138,8 @@ class ArxivRetriever(BaseRetriever):
             batch = list(client.results(search))
             bar.update(len(batch))
             raw_papers.extend(batch)
+            if i + 20 < len(all_paper_ids):
+                time.sleep(3)
         bar.close()
 
         return raw_papers
