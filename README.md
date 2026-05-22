@@ -45,6 +45,9 @@
   - biorxiv
   - medrxiv
 
+## clone 到本地
+` git clone https://github.com/Yongwei-Zhang/zotero-arxiv-daily.git`
+
 ## 📷 Screenshot
 ![screenshot](./assets/screenshot.png)
 

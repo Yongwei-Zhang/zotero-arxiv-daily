@@ -8,6 +8,8 @@ Zotero-arXiv-Daily recommends new arXiv/bioRxiv/medRxiv papers based on a user's
 
 ## Commands
 
+Requires Python ≥ 3.13 (see `pyproject.toml`). `uv sync` will install a matching interpreter.
+
 ```bash
 # Run the application
 uv run src/zotero_arxiv_daily/main.py
@@ -47,6 +49,12 @@ The app follows a linear pipeline orchestrated by `Executor` (`src/zotero_arxiv_
 ### Configuration
 
 Uses Hydra + OmegaConf. Config is composed from `config/base.yaml` (defaults) + `config/custom.yaml` (user overrides). Environment variables are interpolated via `${oc.env:VAR_NAME,default}` syntax. Entry point uses `@hydra.main`.
+
+`config/custom.yaml` is **not checked in** — locally it's user-provided; in CI, `.github/workflows/main.yml` writes it at runtime from the `CUSTOM_CONFIG` repository variable. A missing `config/custom.yaml` is expected on a fresh clone.
+
+### Notification side-channel (Feishu / Telegram)
+
+After the main pipeline finishes, `Executor.run()` dumps reranked papers to `/tmp/papers.json`. `.github/workflows/main.yml` then runs `feishu_sender.py` (or `telegram_sender.py`) as a **separate step** that reads `/tmp/papers.json` and posts to the messaging API. These senders are not invoked from `main.py` — modifying notification behavior usually means editing both the sender script and the workflow step.
 
 ### Data Classes
 
