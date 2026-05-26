@@ -4,8 +4,14 @@ import time
 from types import SimpleNamespace
 
 import feedparser
+import requests
 
-from zotero_arxiv_daily.retriever.arxiv_retriever import ArxivRetriever, _run_with_hard_timeout
+from zotero_arxiv_daily.retriever.arxiv_retriever import (
+    ArxivRetriever,
+    _configure_arxiv_client_timeout,
+    _fetch_arxiv_batch_with_retry,
+    _run_with_hard_timeout,
+)
 import zotero_arxiv_daily.retriever.arxiv_retriever as arxiv_retriever
 
 
@@ -19,7 +25,7 @@ def _raise_runtime_error() -> None:
 
 
 def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
-    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda _: None)
+    monkeypatch.setattr(arxiv_retriever.time, "sleep", lambda _: None)
 
     # The RSS fixture gives us paper IDs.  After feedparser, the code calls
     # arxiv.Client().results(search) which makes real HTTP requests.  We mock
@@ -61,6 +67,43 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     assert len(papers) == len(new_entries)
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
+
+
+def test_fetch_arxiv_batch_retries_timeout(monkeypatch):
+    monkeypatch.setattr(arxiv_retriever.time, "sleep", lambda _: None)
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        def results(self, search):
+            self.calls += 1
+            if self.calls == 1:
+                raise requests.exceptions.ReadTimeout("read timed out")
+            return iter(["paper"])
+
+    client = FakeClient()
+
+    assert _fetch_arxiv_batch_with_retry(client, object()) == ["paper"]
+    assert client.calls == 2
+
+
+def test_configure_arxiv_client_timeout():
+    requests_seen = []
+
+    class FakeSession:
+        def request(self, method, url, **kwargs):
+            requests_seen.append(kwargs)
+            return object()
+
+    client = SimpleNamespace(_session=FakeSession())
+
+    _configure_arxiv_client_timeout(client)
+    client._session.request("GET", "https://export.arxiv.org/api/query")
+    client._session.request("GET", "https://export.arxiv.org/api/query", timeout=5)
+
+    assert requests_seen[0]["timeout"] == arxiv_retriever.ARXIV_API_TIMEOUT
+    assert requests_seen[1]["timeout"] == 5
 
 
 def test_run_with_hard_timeout_returns_value():

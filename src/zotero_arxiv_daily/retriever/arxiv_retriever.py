@@ -19,8 +19,9 @@ T = TypeVar("T")
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
-ARXIV_BATCH_SIZE = 50
+ARXIV_BATCH_SIZE = 20
 ARXIV_API_DELAY_SECONDS = 15
+ARXIV_API_TIMEOUT = (10, 60)
 ARXIV_RETRY_DELAYS = (60, 180, 300, 600)
 ARXIV_RETRY_STATUS_CODES = {429, 502, 503, 504}
 
@@ -127,8 +128,36 @@ def _fetch_arxiv_batch_with_retry(
                 f"arXiv API returned HTTP {exc.status}, retrying in {retry_delay} seconds"
             )
             time.sleep(retry_delay)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            if attempt == len(ARXIV_RETRY_DELAYS):
+                raise
+
+            retry_delay = ARXIV_RETRY_DELAYS[attempt]
+            logger.warning(
+                f"arXiv API request failed with {type(exc).__name__}, "
+                f"retrying in {retry_delay} seconds: {exc}"
+            )
+            time.sleep(retry_delay)
 
     raise RuntimeError("Unexpected arXiv retry loop exit")
+
+
+def _configure_arxiv_client_timeout(
+    client: arxiv.Client,
+    timeout: tuple[int, int] = ARXIV_API_TIMEOUT,
+) -> None:
+    session = getattr(client, "_session", None)
+    if session is None:
+        return
+
+    original_request = session.request
+
+    def request_with_timeout(method: str, url: str, **kwargs):
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = timeout
+        return original_request(method, url, **kwargs)
+
+    session.request = request_with_timeout
 
 
 @register_retriever("arxiv")
@@ -140,6 +169,7 @@ class ArxivRetriever(BaseRetriever):
 
     def _retrieve_raw_papers(self) -> list[ArxivResult]:
         client = arxiv.Client(num_retries=1, delay_seconds=ARXIV_API_DELAY_SECONDS)
+        _configure_arxiv_client_timeout(client)
         query = '+'.join(self.config.source.arxiv.category)
         include_cross_list = self.config.source.arxiv.get("include_cross_list", False)
         # Get the latest paper from arxiv rss feed
