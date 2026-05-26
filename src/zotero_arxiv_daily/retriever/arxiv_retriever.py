@@ -24,6 +24,12 @@ ARXIV_API_DELAY_SECONDS = 15
 ARXIV_API_TIMEOUT = (10, 60)
 ARXIV_RETRY_DELAYS = (60, 180, 300, 600)
 ARXIV_RETRY_STATUS_CODES = {429, 502, 503, 504}
+ARXIV_MAX_FAILED_BATCHES = 1
+ARXIV_BATCH_FAILURE_EXCEPTIONS = (
+    arxiv.HTTPError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ConnectionError,
+)
 
 
 def _download_file(url: str, path: str) -> None:
@@ -191,11 +197,33 @@ class ArxivRetriever(BaseRetriever):
             return raw_papers
 
         time.sleep(ARXIV_API_DELAY_SECONDS)
+        failed_batches = 0
         with tqdm(total=len(all_paper_ids)) as bar:
             for i in range(0, len(all_paper_ids), ARXIV_BATCH_SIZE):
-                search = arxiv.Search(id_list=all_paper_ids[i:i + ARXIV_BATCH_SIZE])
-                batch = _fetch_arxiv_batch_with_retry(client, search)
-                bar.update(len(batch))
+                batch_ids = all_paper_ids[i:i + ARXIV_BATCH_SIZE]
+                search = arxiv.Search(id_list=batch_ids)
+                try:
+                    batch = _fetch_arxiv_batch_with_retry(client, search)
+                except ARXIV_BATCH_FAILURE_EXCEPTIONS as exc:
+                    failed_batches += 1
+                    logger.warning(
+                        f"Skipping arXiv batch {i // ARXIV_BATCH_SIZE + 1} "
+                        f"({len(batch_ids)} papers) after retries failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    bar.update(len(batch_ids))
+                    if failed_batches >= ARXIV_MAX_FAILED_BATCHES:
+                        logger.warning(
+                            f"Stopping arXiv retrieval after {failed_batches} failed batch(es); "
+                            f"returning {len(raw_papers)} papers already retrieved"
+                        )
+                        break
+                    if i + ARXIV_BATCH_SIZE < len(all_paper_ids):
+                        time.sleep(ARXIV_API_DELAY_SECONDS)
+                    continue
+
+                failed_batches = 0
+                bar.update(len(batch_ids))
                 raw_papers.extend(batch)
                 if i + ARXIV_BATCH_SIZE < len(all_paper_ids):
                     time.sleep(ARXIV_API_DELAY_SECONDS)

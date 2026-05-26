@@ -88,6 +88,46 @@ def test_fetch_arxiv_batch_retries_timeout(monkeypatch):
     assert client.calls == 2
 
 
+def test_arxiv_retriever_returns_partial_results_when_batch_fails(
+    config, mock_feedparser, monkeypatch
+):
+    monkeypatch.setattr(arxiv_retriever.time, "sleep", lambda _: None)
+    monkeypatch.setattr(arxiv_retriever, "ARXIV_BATCH_SIZE", 1)
+
+    first_entry = [
+        e for e in mock_feedparser.entries
+        if e.get("arxiv_announce_type", "new") == "new"
+    ][0]
+    first_pid = first_entry.id.removeprefix("oai:arXiv.org:")
+    first_result = SimpleNamespace(
+        title=first_entry.title,
+        authors=[SimpleNamespace(name="Test Author")],
+        summary="Test abstract",
+        pdf_url=f"https://arxiv.org/pdf/{first_pid}",
+        entry_id=f"https://arxiv.org/abs/{first_pid}",
+        source_url=lambda: f"https://arxiv.org/e-print/{first_pid}",
+    )
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kw):
+            pass
+
+    def fake_fetch(client, search):
+        calls.append(search)
+        if len(calls) == 1:
+            return [first_result]
+        raise requests.exceptions.ReadTimeout("read timed out")
+
+    monkeypatch.setattr(arxiv_retriever.arxiv, "Client", FakeClient)
+    monkeypatch.setattr(arxiv_retriever, "_fetch_arxiv_batch_with_retry", fake_fetch)
+
+    raw_papers = ArxivRetriever(config)._retrieve_raw_papers()
+
+    assert raw_papers == [first_result]
+    assert len(calls) == 2
+
+
 def test_configure_arxiv_client_timeout():
     requests_seen = []
 
